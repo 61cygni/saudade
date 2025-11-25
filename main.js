@@ -2,12 +2,16 @@ import * as THREE from "three";
 import { dyno, NewSparkRenderer, SplatMesh, SparkControls, VRButton, XrHands, SplatLoader, isMobile, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType } from "@sparkjsdev/spark";
 import { GUI } from "lil-gui";
 import { createFlickerModifier } from './flicker.js';
-import { initializeFloatingLights, updateFloatingLights } from './floating-lights.js';
+import { FloatingLightsManager } from './floating-lights.js';
+import { EffectZoneManager, loadEffectsConfig } from './effect-zones.js';
 
 
-// Flags for various effects
-const enableFloatingLights = true;
-const enableFlickering = false;
+// Flags for various effects - now zone-based
+const enableEffectZones = true;
+
+// Starting zone - set to a zone ID to start at that zone's center, or null/undefined for default position
+const startZone = null; // e.g., "entrance-room", "living-room", "hallway-1", etc.
+// const startZone = "forest-area"; 
 
 lucide.createIcons();
 
@@ -18,12 +22,16 @@ let cameraInfo;
 let xrHands = null;
 let splatEdit = null;
 const handSdfs = new Map();
-let floatingLightsParticles = null;
-// Floating lights bounds - in localFrame coordinates (camera is at origin)
-const floatingLightsBounds = {
-  min: new THREE.Vector3(-3, -1, -4),   // Close to camera
-  max: new THREE.Vector3(3, 2, 3)       // Small area around viewer
-};
+
+// Effect zone system
+let effectZoneManager = null;
+let floatingLightsManager = null;
+let flickerControls = null;  // Controls for dynamic flicker intensity
+
+// Flicker intensity transition state
+let targetFlickerIntensity = 0;
+let currentFlickerIntensity = 0;
+const FLICKER_FADE_SPEED = 2.0; // Units per second
 
 // localDev is set in index.html BEFORE this script loads (ES6 imports are hoisted)
 // Set to true for local development (loads assets from ./assets/)
@@ -76,6 +84,56 @@ function onWindowResize() {
   }
 }
 
+// Function to print bounding box centered on camera position
+function printBoundingBox(size = { x: 6, y: 5, z: 6 }) {
+  if (!camera) {
+    console.warn('Camera not available');
+    return;
+  }
+  
+  // Get current camera world position
+  const currentPos = new THREE.Vector3();
+  camera.getWorldPosition(currentPos);
+  
+  // Calculate min and max centered on camera position
+  const halfSize = {
+    x: size.x / 2,
+    y: size.y / 2,
+    z: size.z / 2
+  };
+  
+  const min = [
+    (currentPos.x - halfSize.x).toFixed(1),
+    (currentPos.y - halfSize.y).toFixed(1),
+    (currentPos.z - halfSize.z).toFixed(1)
+  ];
+  
+  const max = [
+    (currentPos.x + halfSize.x).toFixed(1),
+    (currentPos.y + halfSize.y).toFixed(1),
+    (currentPos.z + halfSize.z).toFixed(1)
+  ];
+  
+  console.log(`--- Bounding Box (centered on camera ${currentPos.x}, ${currentPos.y}, ${currentPos.z}) ---`);
+  console.log(`"min": [${min[0]}, ${min[1]}, ${min[2]}],`);
+  console.log(`"max": [${max[0]}, ${max[1]}, ${max[2]}]`);
+  console.log('--- Copy the above lines to effects-config.json ---');
+}
+
+// Keyboard listener for zone visualization toggle and bounding box printer
+window.addEventListener('keydown', (event) => {
+  // Toggle zone visualization with 'z' key
+  if (event.key === 'z' || event.key === 'Z') {
+    if (effectZoneManager) {
+      effectZoneManager.toggleVisualization();
+    }
+  }
+  // Print bounding box with 'p' key
+  if (event.key === 'p' || event.key === 'P') {
+    printBoundingBox();
+  }
+}, false);
+
 
 // Setup scene, camera, and renderer
 scene = new THREE.Scene();
@@ -107,6 +165,7 @@ localFrame.add(camera);
 // Set starting position using localFrame (NOT camera.position)
 // In WebXR, the headset controls camera.position directly, so we use localFrame
 // to position the user in the scene. Camera stays at origin relative to localFrame.
+// Default starting position (will be overridden if startZone is set)
 localFrame.position.set(4.91, -0.12, -9.13);
 
 // Initialize camera world position tracking (after camera is added to localFrame)
@@ -157,9 +216,6 @@ const loader = new SplatLoader();
 let totalBytes = null;
 showProgress();
 
-window.debugLogHigh('log', "before loader.loadAsync");
-console.log("before loader.loadAsync");
-
 // Convert relative URL to absolute if needed
 let absoluteSplatURL = splatURL;
 if (splatURL.startsWith('/')) {
@@ -184,8 +240,6 @@ const packedSplats = await loader.loadAsync(splatURL, (event) => {
   throw err;
 });
 
-console.log("after loader.loadAsync");
-window.debugLogHigh('log', "after loader.loadAsync");
 hideProgress();
 
 background = new SplatMesh({ packedSplats, lod: true, nonLod: true });
@@ -194,15 +248,18 @@ background.scale.setScalar(0.5);
 // Make background editable so it can be affected by SDFs
 background.editable = true;
 
-// Apply combined warp and flicker modifier to background splat mesh
-if (enableFlickering) {
-  background.objectModifier = createFlickerModifier(dyno, animateT, {
-    flickerSpeed: 0.5,        // Slower flickering (lower = less noticeable)
-    flickerAmount: 0.4,       // Less brightness variation (lower = lights stay brighter)
+// Apply flicker modifier to background splat mesh (always create, intensity controlled by zones)
+if (enableEffectZones) {
+  const flickerResult = createFlickerModifier(dyno, animateT, {
+    flickerSpeed: 0.5,
+    flickerAmount: 0.4,
     enableOnOff: true,
-    onOffThreshold: 0.2,       // Higher threshold = lights turn off less often
-    offWindowWidth: 0.7
+    onOffThreshold: 0.2,
+    offWindowWidth: 0.7,
+    initialIntensity: 0  // Start with no flickering, zones will enable it
   });
+  background.objectModifier = flickerResult.modifier;
+  flickerControls = flickerResult.controls;
 }
 
 // Make sure to update the generator after updating modifiers
@@ -210,13 +267,11 @@ background.updateGenerator();
 scene.add(background);
 
 // Setup VR button after scene is loaded
-debugLogHigh('log', "renderer.xr:", renderer.xr);
 const vrButton = VRButton.createButton(renderer, {
 optionalFeatures: ["hand-tracking"],
 });
-debugLogHigh('log', "VRButton.createButton returned:", vrButton);
 
-// Create SplatEdit layer for SDF highlighting (needed for floating lights and VR hands)
+// Create SplatEdit layer for SDF highlighting (in localFrame space - for VR hands)
 splatEdit = new SplatEdit({
   rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
   sdfSmooth: 0.02,
@@ -224,14 +279,77 @@ splatEdit = new SplatEdit({
 });
 localFrame.add(splatEdit);
 
-// Initialize floating blue lights
-// Pass localFrame so spheres are in same coordinate system as splatEdit/SDFs
-if (enableFloatingLights) {
-  window.debugLogHigh('log', "initializing floating lights");
-  const floatingLights = initializeFloatingLights(localFrame, splatEdit, 10, {
-    bounds: floatingLightsBounds
+// Create a separate SplatEdit for world-space effects (floating lights from zones)
+const sceneSplatEdit = new SplatEdit({
+  rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
+  sdfSmooth: 0.02,
+  softEdge: 0.02,
+});
+scene.add(sceneSplatEdit);
+
+// Initialize effect zone system
+if (enableEffectZones) {
+  window.debugLogHigh('log', "initializing effect zones");
+  
+  // Create floating lights manager (uses sceneSplatEdit for world-space SDFs)
+  floatingLightsManager = new FloatingLightsManager(scene, sceneSplatEdit);
+  
+  // Create and configure zone manager (pass scene for visualization)
+  effectZoneManager = new EffectZoneManager(scene);
+  
+  // Load effects configuration
+  const effectsConfig = await loadEffectsConfig(getAssetUrl);
+  effectZoneManager.loadConfig(effectsConfig);
+  
+  // Set starting position to zone center if startZone is specified
+  if (startZone) {
+    const zone = effectZoneManager.zones.find(z => z.id === startZone);
+    if (zone) {
+      // Calculate center of the zone
+      const center = new THREE.Vector3()
+        .addVectors(zone.bounds.min, zone.bounds.max)
+        .multiplyScalar(0.5);
+      localFrame.position.copy(center);
+      console.log(`Starting at zone "${startZone}" center:`, center);
+    } else {
+      console.warn(`Zone "${startZone}" not found, using default starting position`);
+    }
+  }
+  
+  // Set up zone enter callback
+  effectZoneManager.onEnter((zone) => {
+    window.debugLogHigh('info', `Entered zone: ${zone.id}`);
+    console.log(`Entered zone: ${zone.id}`);
+    
+    // Handle floating lights for this zone
+    if (zone.effects.floatingLights?.enabled) {
+      floatingLightsManager.spawnForZone(zone.id, zone.bounds, zone.effects.floatingLights);
+    }
+    
+    // Handle flickering - update target intensity
+    const flickerState = effectZoneManager.getFlickerState();
+    targetFlickerIntensity = flickerState.intensity;
+    if (flickerState.config && flickerControls) {
+      flickerControls.updateFromConfig(flickerState.config);
+    }
   });
-  floatingLightsParticles = floatingLights.particles;
+  
+  // Set up zone exit callback
+  effectZoneManager.onExit((zone) => {
+    window.debugLogHigh('info', `Exited zone: ${zone.id}`);
+    
+    // Remove floating lights for this zone
+    if (zone.effects.floatingLights?.enabled) {
+      floatingLightsManager.removeForZone(zone.id);
+    }
+    
+    // Update flicker intensity based on remaining active zones
+    const flickerState = effectZoneManager.getFlickerState();
+    targetFlickerIntensity = flickerState.intensity;
+    if (flickerState.config && flickerControls) {
+      flickerControls.updateFromConfig(flickerState.config);
+    }
+  });
 }
 
 if (vrButton) {
@@ -310,9 +428,31 @@ if (background) {
 // Check proximity triggers for non-looping audio (use world position)
 checkProximityTriggers(cameraWorldPos);
 
-// Update floating lights animation
-if (floatingLightsParticles) {
-  updateFloatingLights(floatingLightsParticles, floatingLightsBounds, time, splatEdit);
+// Update effect zones based on camera position
+if (effectZoneManager) {
+  effectZoneManager.update(cameraWorldPos);
+}
+
+// Update floating lights animation for all active zones
+if (floatingLightsManager) {
+  floatingLightsManager.update(time);
+}
+
+// Smoothly interpolate flicker intensity
+if (flickerControls) {
+  const deltaTime = 1 / 60; // Approximate frame time
+  if (currentFlickerIntensity < targetFlickerIntensity) {
+    currentFlickerIntensity = Math.min(
+      targetFlickerIntensity,
+      currentFlickerIntensity + FLICKER_FADE_SPEED * deltaTime
+    );
+  } else if (currentFlickerIntensity > targetFlickerIntensity) {
+    currentFlickerIntensity = Math.max(
+      targetFlickerIntensity,
+      currentFlickerIntensity - FLICKER_FADE_SPEED * deltaTime
+    );
+  }
+  flickerControls.setIntensity(currentFlickerIntensity);
 }
 
 // Update WebXR hands if active

@@ -134,6 +134,7 @@ export async function toggleAudio() {
       // Play only looping spatial audio sources
       for (const source of spatialAudioSources) {
         if (source.loop && !source.audio.isPlaying) {
+          console.log("Playing looping audio:", source.url);
           source.audio.play();
         }
       }

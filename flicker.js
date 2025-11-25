@@ -7,7 +7,7 @@
  * @param {object} dyno - The dyno library object
  * @param {object} animateT - The animated time value (dynoFloat)
  * @param {object} options - Configuration options
- * @returns {object} The objectModifier to be assigned to a SplatMesh
+ * @returns {object} Object containing the modifier and control functions
  */
 export function createFlickerModifier(dyno, animateT, options = {}) {
   const {
@@ -16,15 +16,18 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
     enableOnOff = true,         // Enable complete on/off flickering
     onOffThreshold = 0.7,       // Threshold for on/off effect
     offWindowWidth = 0.15,      // Width of off window (smaller = shorter dark periods)
-    colorShift = null            // Optional color shift (vec3, e.g., [1.2, 1.0, 0.8] for warm)
+    colorShift = null,          // Optional color shift (vec3, e.g., [1.2, 1.0, 0.8] for warm)
+    initialIntensity = 1.0      // Initial intensity multiplier (0 = no effect, 1 = full effect)
   } = options;
   
   const flickerSpeedVal = dyno.dynoFloat(flickerSpeed);
   const flickerAmountVal = dyno.dynoFloat(flickerAmount);
   const onOffThresholdVal = dyno.dynoFloat(onOffThreshold);
   const offWindowWidthVal = dyno.dynoFloat(offWindowWidth);
+  // Dynamic intensity multiplier - can be changed at runtime for zone-based effects
+  const intensityVal = dyno.dynoFloat(initialIntensity);
   
-  return dyno.dynoBlock(
+  const modifier = dyno.dynoBlock(
     { gsplat: dyno.Gsplat },
     { gsplat: dyno.Gsplat },
     ({ gsplat }) => {
@@ -36,7 +39,8 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
           flickerSpeed: "float",
           flickerAmount: "float",
           onOffThreshold: "float",
-          offWindowWidth: "float"
+          offWindowWidth: "float",
+          intensity: "float"
         },
         outTypes: { gsplat: dyno.Gsplat },
         globals: () => [
@@ -54,7 +58,10 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
               return (n1 * 0.5 + n2 * 0.3 + n3 * 0.2);
             }
             
-            float flickerBrightness(float t, float speed, float amount, float threshold, float offWindow) {
+            float flickerBrightness(float t, float speed, float amount, float threshold, float offWindow, float intensity) {
+              // If intensity is 0, return 1.0 (no flickering effect)
+              if (intensity <= 0.0) return 1.0;
+              
               // Base flickering with multiple sine waves at different frequencies
               float flicker1 = sin(t * speed);
               float flicker2 = sin(t * speed * 2.3);
@@ -70,26 +77,34 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
               
               // Combine deterministic and random components
               float combinedFlicker = flickerValue + noiseVariation;
-              float intensityMultiplier = 1.0 - amount + (combinedFlicker * amount);
+              
+              // Scale the effect by intensity
+              float scaledAmount = amount * intensity;
+              float intensityMultiplier = 1.0 - scaledAmount + (combinedFlicker * scaledAmount);
               
               // Random on/off moments using noise instead of sine wave
-              float randomOff = noise(t * speed * 8.0);
-              float randomFlash = noise(t * speed * 13.0);
-              
-              // Occasional complete off - more random timing
-              if (randomOff < threshold && randomOff > threshold - offWindow) {
-                intensityMultiplier = 0.0;
-              }
-              
-              // Random bright flashes
-              if (randomFlash > 0.85) {
-                intensityMultiplier = min(1.0, intensityMultiplier * (1.2 + randomFlash * 0.3));
-              }
-              
-              // Add occasional random dips
-              float randomDip = noise(t * speed * 6.0);
-              if (randomDip < 0.15) {
-                intensityMultiplier *= (0.3 + randomDip * 2.0);
+              // Only apply if intensity is high enough
+              if (intensity > 0.5) {
+                float randomOff = noise(t * speed * 8.0);
+                float randomFlash = noise(t * speed * 13.0);
+                
+                // Occasional complete off - more random timing
+                // Scale threshold by intensity so effect fades in/out smoothly
+                float scaledThreshold = threshold * intensity;
+                if (randomOff < scaledThreshold && randomOff > scaledThreshold - offWindow * intensity) {
+                  intensityMultiplier = mix(intensityMultiplier, 0.0, intensity);
+                }
+                
+                // Random bright flashes
+                if (randomFlash > 0.85) {
+                  intensityMultiplier = min(1.0, intensityMultiplier * (1.0 + 0.5 * intensity));
+                }
+                
+                // Add occasional random dips
+                float randomDip = noise(t * speed * 6.0);
+                if (randomDip < 0.15) {
+                  intensityMultiplier *= mix(1.0, 0.3 + randomDip * 2.0, intensity);
+                }
               }
               
               return max(0.0, intensityMultiplier);
@@ -111,7 +126,8 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
               ${inputs.flickerSpeed}, 
               ${inputs.flickerAmount},
               ${inputs.onOffThreshold},
-              ${inputs.offWindowWidth}
+              ${inputs.offWindowWidth},
+              ${inputs.intensity}
             );
             ${outputs.gsplat}.rgba.rgb *= brightness;
             ${colorMod}
@@ -126,12 +142,40 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
         flickerSpeed: flickerSpeedVal,
         flickerAmount: flickerAmountVal,
         onOffThreshold: onOffThresholdVal,
-        offWindowWidth: offWindowWidthVal
+        offWindowWidth: offWindowWidthVal,
+        intensity: intensityVal
       }).gsplat;
       
       return { gsplat };
     },
   );
+
+  // Return both the modifier and control interface
+  return {
+    modifier,
+    // Control functions for dynamic updates
+    controls: {
+      /** Set the intensity multiplier (0 = no effect, 1 = full effect) */
+      setIntensity: (value) => { intensityVal.value = value; },
+      /** Get current intensity */
+      getIntensity: () => intensityVal.value,
+      /** Set flicker speed */
+      setSpeed: (value) => { flickerSpeedVal.value = value; },
+      /** Set flicker amount */
+      setAmount: (value) => { flickerAmountVal.value = value; },
+      /** Set on/off threshold */
+      setOnOffThreshold: (value) => { onOffThresholdVal.value = value; },
+      /** Set off window width */
+      setOffWindowWidth: (value) => { offWindowWidthVal.value = value; },
+      /** Update all parameters from a config object */
+      updateFromConfig: (config) => {
+        if (config.flickerSpeed !== undefined) flickerSpeedVal.value = config.flickerSpeed;
+        if (config.flickerAmount !== undefined) flickerAmountVal.value = config.flickerAmount;
+        if (config.onOffThreshold !== undefined) onOffThresholdVal.value = config.onOffThreshold;
+        if (config.offWindowWidth !== undefined) offWindowWidthVal.value = config.offWindowWidth;
+      }
+    }
+  };
 }
 
 /**
@@ -290,4 +334,3 @@ export function createWarpAndFlickerModifier(dyno, animateT, flickerOptions = {}
     },
   );
 }
-
