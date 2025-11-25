@@ -1,6 +1,13 @@
 import * as THREE from "three";
 import { dyno, NewSparkRenderer, SplatMesh, SparkControls, VRButton, XrHands, SplatLoader, isMobile, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType } from "@sparkjsdev/spark";
 import { GUI } from "lil-gui";
+import { createFlickerModifier } from './flicker.js';
+import { initializeFloatingLights, updateFloatingLights } from './floating-lights.js';
+
+
+// Flags for various effects
+const enableFloatingLights = true;
+const enableFlickering = false;
 
 lucide.createIcons();
 
@@ -11,15 +18,22 @@ let cameraInfo;
 let xrHands = null;
 let splatEdit = null;
 const handSdfs = new Map();
+let floatingLightsParticles = null;
+// Floating lights bounds - in localFrame coordinates (camera is at origin)
+const floatingLightsBounds = {
+  min: new THREE.Vector3(-3, -1, -4),   // Close to camera
+  max: new THREE.Vector3(3, 2, 3)       // Small area around viewer
+};
 
+// localDev is set in index.html BEFORE this script loads (ES6 imports are hoisted)
 // Set to true for local development (loads assets from ./assets/)
 // Set to false for production (loads assets from Tigris CDN)
 // 
 // For local development:
 // 1. Download assets: https://storage.googleapis.com/forge-dev-public/artistsjourney/assets.zip
 // 2. Unpack the zip file into the project root (creates ./assets/ directory)
-// 3. Set localDev = true
-const localDev = true; // Set to false for Netlify deployment
+// 3. Set window.localDev = true in index.html
+const localDev = window.localDev || false;
 
 function getAssetUrl(path) {
   if (localDev) {
@@ -53,7 +67,6 @@ window.getAssetUrl = getAssetUrl;
 // Import debug console module
 import './debug-console.js';
 
-
 window.addEventListener('resize', onWindowResize, false);
 function onWindowResize() {
   if (camera && renderer) {
@@ -71,6 +84,9 @@ renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
+// Expose renderer globally for debug console VR detection
+window.renderer = renderer;
+
 // Add audio listener to camera
 camera.add(audioListener);
 
@@ -83,7 +99,7 @@ scene.add(localFrame);
 spark = new NewSparkRenderer({
 renderer,
 maxStdDev: Math.sqrt(6),
-lodSplatScale: 2.0,
+lodSplatScale: 1.0,
 });
 scene.add(spark);
 localFrame.add(camera);
@@ -108,8 +124,8 @@ controls = new SparkControls({ canvas: renderer.domElement });
 controls.fpsMovement.xr = renderer.xr;
 // controls.pointerControls.pointerRollScale = 0.0;
 // controls.pointerControls.reverseRotate = isMobile();
-// controls.pointerControls.rotateSpeed *= 2.0;
-// controls.pointerControls.slideSpeed *= 1.5;
+controls.pointerControls.rotateSpeed *= .5;
+controls.pointerControls.slideSpeed *= .5;
 // controls.fpsMovement.moveSpeed *= 0.2;
 
 // Store the default slide speed for XR mode (default is 0.006)
@@ -129,35 +145,65 @@ if (localDev) {
 // Initialize animateT before async operations (used in animation loop)
 animateT = dyno.dynoFloat(0);
 
+window.showDebugConsole();
+
+window.debugLogHigh('log', "localDev:", localDev);
+
 // Load splat file
 const splatURL = getAssetUrl("assets/memory-house-lod.spz");
+window.debugLogHigh('log', "splatURL:", splatURL);
+
 const loader = new SplatLoader();
 let totalBytes = null;
 showProgress();
 
-const packedSplats = await loader.loadAsync(splatURL, (event) => {
-const loadedBytes = event.loaded || 0;
-if (event.lengthComputable && event.total) {
-  totalBytes = event.total;
-  updateProgress(event.loaded / event.total, loadedBytes, totalBytes);
-} else {
-  // Approximate progress when total size is unknown
-  updateProgress(calculateUnknownProgress(loadedBytes), loadedBytes, totalBytes);
+window.debugLogHigh('log', "before loader.loadAsync");
+console.log("before loader.loadAsync");
+
+// Convert relative URL to absolute if needed
+let absoluteSplatURL = splatURL;
+if (splatURL.startsWith('/')) {
+  absoluteSplatURL = `${window.location.origin}${splatURL}`;
 }
+
+const packedSplats = await loader.loadAsync(splatURL, (event) => {
+  const loadedBytes = event.loaded || 0;
+  const loadedMB = (loadedBytes / (1024 * 1024)).toFixed(2);
+  
+  if (event.lengthComputable && event.total) {
+    totalBytes = event.total;
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+    const percent = ((event.loaded / event.total) * 100).toFixed(1);
+    updateProgress(event.loaded / event.total, loadedBytes, totalBytes);
+  } else {
+    updateProgress(calculateUnknownProgress(loadedBytes), loadedBytes, totalBytes);
+  }
+}).catch(err => {
+  window.debugLogHigh('error', 'Load failed:', err.message);
+  console.error('Load failed:', err);
+  throw err;
 });
 
+console.log("after loader.loadAsync");
+window.debugLogHigh('log', "after loader.loadAsync");
 hideProgress();
+
 background = new SplatMesh({ packedSplats, lod: true, nonLod: true });
 background.position.set(0, 0, 0);
 background.scale.setScalar(0.5);
 // Make background editable so it can be affected by SDFs
 background.editable = true;
 
-// Import warp module
-import { createWarpModifier } from './warp.js';
-
-// Apply warp modifier to background splat mesh
-background.objectModifier = createWarpModifier(dyno, animateT);
+// Apply combined warp and flicker modifier to background splat mesh
+if (enableFlickering) {
+  background.objectModifier = createFlickerModifier(dyno, animateT, {
+    flickerSpeed: 0.5,        // Slower flickering (lower = less noticeable)
+    flickerAmount: 0.4,       // Less brightness variation (lower = lights stay brighter)
+    enableOnOff: true,
+    onOffThreshold: 0.2,       // Higher threshold = lights turn off less often
+    offWindowWidth: 0.7
+  });
+}
 
 // Make sure to update the generator after updating modifiers
 background.updateGenerator();
@@ -169,6 +215,25 @@ const vrButton = VRButton.createButton(renderer, {
 optionalFeatures: ["hand-tracking"],
 });
 debugLogHigh('log', "VRButton.createButton returned:", vrButton);
+
+// Create SplatEdit layer for SDF highlighting (needed for floating lights and VR hands)
+splatEdit = new SplatEdit({
+  rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
+  sdfSmooth: 0.02,
+  softEdge: 0.02,
+});
+localFrame.add(splatEdit);
+
+// Initialize floating blue lights
+// Pass localFrame so spheres are in same coordinate system as splatEdit/SDFs
+if (enableFloatingLights) {
+  window.debugLogHigh('log', "initializing floating lights");
+  const floatingLights = initializeFloatingLights(localFrame, splatEdit, 10, {
+    bounds: floatingLightsBounds
+  });
+  floatingLightsParticles = floatingLights.particles;
+}
+
 if (vrButton) {
   // WebXR is available, so show the button
   document.body.appendChild(vrButton);
@@ -178,14 +243,6 @@ if (vrButton) {
   const handMesh = xrHands.makeGhostMesh();
   handMesh.editable = false;
   localFrame.add(handMesh);
-
-  // Create SplatEdit layer for SDF highlighting
-  splatEdit = new SplatEdit({
-    rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
-    sdfSmooth: 0.02,
-    softEdge: 0.02,
-  });
-  localFrame.add(splatEdit);
 
   // Reset camera tracking when VR session starts to prevent transport effect
   renderer.xr.addEventListener('sessionstart', () => {
@@ -252,6 +309,11 @@ if (background) {
 
 // Check proximity triggers for non-looping audio (use world position)
 checkProximityTriggers(cameraWorldPos);
+
+// Update floating lights animation
+if (floatingLightsParticles) {
+  updateFloatingLights(floatingLightsParticles, floatingLightsBounds, time, splatEdit);
+}
 
 // Update WebXR hands if active
 if (isXRActive && xrHands) {

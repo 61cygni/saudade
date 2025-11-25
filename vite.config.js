@@ -20,6 +20,7 @@ export default defineConfig({
     cors: true,
     // Enable HTTPS for WebXR (required for VR headsets)
     // Try to use mkcert certificates if available, otherwise use Vite's auto-generated certs
+    // Set to false temporarily if you're having WASM loading issues
     https: (() => {
       const certPath = path.join(__dirname, 'localhost+2.pem');
       const keyPath = path.join(__dirname, 'localhost+2-key.pem');
@@ -35,6 +36,8 @@ export default defineConfig({
       // Fallback to Vite's auto-generated certificate
       return true;
     })(),
+    // Set https: false if you're having certificate issues:
+    https: false,
     // Increase header size limit to handle large file requests
     headers: {
       'Access-Control-Allow-Origin': '*',

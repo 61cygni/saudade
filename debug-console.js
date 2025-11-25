@@ -4,6 +4,9 @@
 // Get localDev from window or default to false
 const localDev = window.localDev || false;
 
+// Debug: Log the value of localDev to browser console
+console.log('[debug-console.js] window.localDev =', window.localDev, ', localDev =', localDev);
+
 // Debug Console Setup
 const debugConsole = document.getElementById("debug-console");
 const debugConsoleContent = document.getElementById("debug-console-content");
@@ -122,6 +125,7 @@ function switchTab(tabName) {
 function toggleDebugConsole() {
   debugConsoleVisible = !debugConsoleVisible;
   if (debugConsoleVisible) {
+    debugConsole.style.display = 'flex'; // Override inline style
     debugConsole.classList.add('visible');
     // Add welcome message if console is empty
     if (debugMessages.length === 0) {
@@ -129,6 +133,7 @@ function toggleDebugConsole() {
     }
     updateDebugConsole();
   } else {
+    debugConsole.style.display = 'none';
     debugConsole.classList.remove('visible');
   }
 }
@@ -156,7 +161,9 @@ function clearDebugConsole() {
 }
 
 // Only set up debug console if localDev is true
+console.log('[debug-console.js] SHOW_DEBUG_CONSOLE =', SHOW_DEBUG_CONSOLE, ', debugConsole =', debugConsole);
 if (SHOW_DEBUG_CONSOLE && debugConsole) {
+  console.log('[debug-console.js] Setting up debug console...');
   // Intercept console methods
   const originalConsoleLog = console.log;
   const originalConsoleWarn = console.warn;
@@ -196,8 +203,11 @@ if (SHOW_DEBUG_CONSOLE && debugConsole) {
   });
 
   // Show debug console on startup
+  console.log('[debug-console.js] Calling showDebugConsole()...');
   showDebugConsole();
+  console.log('[debug-console.js] debugConsoleVisible =', debugConsoleVisible);
 } else {
+  console.log('[debug-console.js] NOT setting up debug console - condition failed');
   // Hide debug console element when not in localDev mode
   if (debugConsole) {
     debugConsole.style.display = 'none';
@@ -210,3 +220,5 @@ window.hideDebugConsole = hideDebugConsole;
 window.toggleDebugConsole = toggleDebugConsole;
 window.debugLogHigh = debugLogHigh; // High priority logging function
 
+
+window.showDebugConsole = showDebugConsole;

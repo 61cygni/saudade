@@ -341,6 +341,10 @@
       }
     }
   </script>
+  <!-- Set localDev BEFORE main.js loads (ES6 imports are hoisted) -->
+  <script>
+    window.localDev = true; // Set to false for production
+  </script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script type="module" src="./main.js"></script>
 </body>
