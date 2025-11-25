@@ -4,9 +4,10 @@
   "description": "Artist's Journey - 3D interactive experience with spatial audio",
   "type": "module",
   "scripts": {
-    "dev": "npm run build:dev && concurrently \"vite --host\" \"npm run build:watch\"",
-    "build": "vite build",
-    "build:dev": "vite build --mode dev",
+    "copy-assets": "mkdir -p public && cp -r assets public/",
+    "dev": "npm run copy-assets && npm run build:dev && concurrently \"vite --host\" \"npm run build:watch\"",
+    "build": "npm run copy-assets && vite build",
+    "build:dev": "npm run copy-assets && vite build --mode dev",
     "build:watch": "onchange '**/*.{js,ts,glsl}' -- npm run build:dev",
     "preview": "vite preview"
   },

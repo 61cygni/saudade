@@ -1,4 +1,4 @@
-# Artist's Journey
+# Saudade
 
 An immersive 3D interactive experience with spatial audio, built with Three.js and Gaussian Splatting.
 
@@ -7,6 +7,7 @@ An immersive 3D interactive experience with spatial audio, built with Three.js a
 - 3D Gaussian Splatting scene rendering with LOD support
 - Spatial audio system with proximity-triggered non-looping sounds
 - First-person controls (WASD + mouse)
+- WebXR support (tested on Quest3)
 - JSON-based audio configuration for easy editing
 - Configurable audio falloff, volume, and trigger radii
 

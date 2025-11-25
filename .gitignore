@@ -38,3 +38,6 @@ public/assets/
 *.spz
 *.mp3
 assets.zip
+
+# Local Netlify folder
+.netlify
