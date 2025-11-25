@@ -1,0 +1,22 @@
+{
+  "name": "artistsjourney",
+  "version": "1.0.0",
+  "description": "Artist's Journey - 3D interactive experience with spatial audio",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:dev && concurrently \"vite --host\" \"npm run build:watch\"",
+    "build": "vite build",
+    "build:dev": "vite build --mode dev",
+    "build:watch": "onchange '**/*.{js,ts,glsl}' -- npm run build:dev",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "vite": "^5.0.0"
+  },
+  "keywords": [
+    "threejs",
+    "spatial-audio",
+    "3d"
+  ]
+}

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>artistsjourney</title>
+  <style>
+    body {
+      margin: 0;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      outline: none; /* Remove default focus outline */
+      touch-action: none;
+    }
+
+    #mobile-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      background: #000;
+      color: #fff;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      text-align: center;
+      z-index: 2000;
+      padding: 24px;
+    }
+
+    #mobile-overlay.visible {
+      display: flex;
+    }
+
+    #mobile-overlay .overlay-content {
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #overlay-message {
+      font-size: 20px;
+      line-height: 1.4;
+    }
+
+    #progress-status {
+      font-size: 14px;
+      opacity: 0.75;
+    }
+
+    #progress-bar {
+      width: 100%;
+      height: 8px;
+      background-color: rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      overflow: hidden;
+      display: none;
+    }
+
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4CAF50, #45a049);
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+
+    #audio-toggle {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      z-index: 2100;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border: none;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 24px;
+      cursor: pointer;
+      transition: background-color 0.2s ease, transform 0.2s ease;
+    }
+
+    #audio-toggle:hover,
+    #audio-toggle:focus-visible {
+      background: rgba(0, 0, 0, 0.8);
+      transform: scale(1.05);
+      outline: none;
+    }
+
+    #audio-toggle lucide-icon {
+      width: 24px;
+      height: 24px;
+      display: block;
+      color: #fff;
+      stroke: currentColor;
+    }
+
+    #instructions-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      z-index: 1000;
+      padding: 32px;
+      flex-wrap: wrap;
+      user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+      pointer-events: none;
+    }
+
+    #instructions-overlay.visible {
+      display: flex;
+    }
+
+    #instructions-overlay * {
+      pointer-events: none;
+    }
+
+    .instruction-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: #fff;
+      text-align: center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-size: 18px;
+      max-width: 220px;
+    }
+
+    .instruction-item img {
+      height: auto;
+      opacity: 0.9;
+    }
+
+    .instruction-item.wasd img {
+      width: 55%;
+    }
+
+    .instruction-item.mouse img {
+      width: 55%;
+    }
+
+    #debug-console {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 25%;
+      height: 50%;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(5px);
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      display: none;
+      flex-direction: column;
+      z-index: 3000;
+      padding: 12px;
+      box-sizing: border-box;
+      border-bottom-left-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    #debug-console.visible {
+      display: flex;
+    }
+
+    #debug-console-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    #debug-console-title {
+      font-size: 12px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+
+    #debug-console-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .debug-console-tab {
+      padding: 4px 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      color: rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 10px;
+      transition: all 0.2s ease;
+    }
+
+    .debug-console-tab:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .debug-console-tab.active {
+      background: rgba(76, 175, 80, 0.3);
+      border-color: rgba(76, 175, 80, 0.5);
+      color: #4CAF50;
+      font-weight: bold;
+    }
+
+    #debug-console-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .debug-console-button {
+      padding: 4px 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 10px;
+      transition: background 0.2s ease;
+    }
+
+    .debug-console-button:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    #debug-console-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 6px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 3px;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
+    .debug-console-message {
+      margin-bottom: 4px;
+      word-wrap: break-word;
+      white-space: pre-wrap;
+    }
+
+    .debug-console-message.log {
+      color: #e0e0e0;
+    }
+
+    .debug-console-message.warn {
+      color: #ffa500;
+    }
+
+    .debug-console-message.error {
+      color: #ff4444;
+    }
+
+    .debug-console-message.info {
+      color: #4CAF50;
+    }
+
+    .debug-console-timestamp {
+      color: rgba(255, 255, 255, 0.5);
+      margin-right: 6px;
+      font-size: 9px;
+    }
+  </style>
+</head>
+
+<body>
+  <button id="audio-toggle" type="button" aria-label="Play audio"></button>
+  <div id="mobile-overlay">
+    <div class="overlay-content">
+      <div id="overlay-message"></div>
+      <div id="progress-status"></div>
+      <div id="progress-bar">
+        <div id="progress-fill"></div>
+      </div>
+    </div>
+  </div>
+  <div id="instructions-overlay">
+    <div class="instruction-item wasd">
+      <div>Use WASD keys to move</div>
+      <img src="./wasd.png" alt="WASD icon" />
+    </div>
+    <div class="instruction-item mouse">
+      <div>Click and drag to look around</div>
+      <img src="./mouse.png" alt="Mouse icon" />
+    </div>
+  </div>
+  <div id="debug-console" style="display: none;">
+    <div id="debug-console-header">
+      <div id="debug-console-title">Debug Console</div>
+      <div id="debug-console-controls">
+        <button class="debug-console-button" id="debug-console-clear">Clear</button>
+        <button class="debug-console-button" id="debug-console-close">Close</button>
+      </div>
+    </div>
+    <div id="debug-console-tabs">
+      <button class="debug-console-tab active" data-tab="all">All</button>
+      <button class="debug-console-tab" data-tab="high">High Priority</button>
+    </div>
+    <div id="debug-console-content"></div>
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "./spark.module.js"
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module" src="./main.js"></script>
+</body>
+
+</html>
