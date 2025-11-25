@@ -170,47 +170,36 @@ optionalFeatures: ["hand-tracking"],
 });
 debugLogHigh('log', "VRButton.createButton returned:", vrButton);
 if (vrButton) {
-// WebXR is available, so show the button
-document.body.appendChild(vrButton);
-debugLogHigh('log', "VR button appended to document.body");
+  // WebXR is available, so show the button
+  document.body.appendChild(vrButton);
 
-// Initialize WebXR hands
-xrHands = new XrHands();
-const handMesh = xrHands.makeGhostMesh();
-handMesh.editable = false;
-localFrame.add(handMesh);
-debugLogHigh('info', 'WebXR hands initialized');
+  // Initialize WebXR hands
+  xrHands = new XrHands();
+  const handMesh = xrHands.makeGhostMesh();
+  handMesh.editable = false;
+  localFrame.add(handMesh);
 
-// Create SplatEdit layer for SDF highlighting
-splatEdit = new SplatEdit({
-  rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
-  sdfSmooth: 0.02,
-  softEdge: 0.02,
-});
-localFrame.add(splatEdit);
-debugLogHigh('info', 'SplatEdit layer created for hand interaction');
+  // Create SplatEdit layer for SDF highlighting
+  splatEdit = new SplatEdit({
+    rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
+    sdfSmooth: 0.02,
+    softEdge: 0.02,
+  });
+  localFrame.add(splatEdit);
 
-// Reset camera tracking when VR session starts to prevent transport effect
-renderer.xr.addEventListener('sessionstart', () => {
-  debugLogHigh('info', 'VR session started');
+  // Reset camera tracking when VR session starts to prevent transport effect
+  renderer.xr.addEventListener('sessionstart', () => {
+    debugLogHigh('info', 'VR session started');
   
-  // Transfer camera movement to localFrame before headset takes over camera.position
-  // This preserves the user's position from non-VR mode
-  const priorCameraPos = camera.position.clone();
-  debugLogHigh('info', `Pre-VR camera position: ${priorCameraPos.x.toFixed(2)}, ${priorCameraPos.y.toFixed(2)}, ${priorCameraPos.z.toFixed(2)}`);
-  debugLogHigh('info', `Pre-VR localFrame position: ${localFrame.position.x.toFixed(2)}, ${localFrame.position.y.toFixed(2)}, ${localFrame.position.z.toFixed(2)}`);
+    // Transfer camera movement to localFrame before headset takes over camera.position
+    // This preserves the user's position from non-VR mode
+    const priorCameraPos = camera.position.clone();
   
-  // Add camera position to localFrame to preserve world position
-  localFrame.position.add(priorCameraPos);
-  debugLogHigh('info', `Transferred to localFrame: ${localFrame.position.x.toFixed(2)}, ${localFrame.position.y.toFixed(2)}, ${localFrame.position.z.toFixed(2)}`);
+    // Add camera position to localFrame to preserve world position
+    localFrame.position.add(priorCameraPos);
   
-  // Reset tracking and enable grace period to prevent discontinuity detection on entry
-  vrEntryFrameCount = 0;
-  setTimeout(() => {
-    // Reset lastCameraPos to current headset position to prevent discontinuity detection
-    lastCameraPos.copy(camera.position);
-    debugLogHigh('info', `VR: Headset camera position: ${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}`);
-  }, 100);
+    // Reset tracking and enable grace period to prevent discontinuity detection on entry
+    vrEntryFrameCount = 0;
 });
 }
 
