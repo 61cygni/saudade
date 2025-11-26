@@ -2,6 +2,7 @@
 // Manages spatial zones that trigger visual effects when the user enters/exits
 
 import * as THREE from "three";
+import { SplatMesh, constructGrid } from "@sparkjsdev/spark";
 
 /**
  * Effect Zone Manager
@@ -18,7 +19,8 @@ export class EffectZoneManager {
     this.scene = scene;
     this.visualizationGroup = null;
     this.visualizationVisible = false;
-    this.wireframeBoxes = new Map(); // Map of zoneId -> wireframe mesh
+    this.zoneGrids = new Map(); // Map of zoneId -> SplatMesh grid
+    this.zoneGridColors = new Map(); // Map of zoneId -> current color (to track changes)
   }
 
   /**
@@ -41,6 +43,8 @@ export class EffectZoneManager {
       effects: zoneConfig.effects || {}
     }));
 
+    // print the zone IDs to the console
+    console.log(`EffectZoneManager: Zone IDs: ${this.zones.map(zone => zone.id).join(', ')}`);
     console.log(`EffectZoneManager: Loaded ${this.zones.length} zones`);
     
     // Create visualization if scene is available
@@ -50,7 +54,7 @@ export class EffectZoneManager {
   }
 
   /**
-   * Create wireframe boxes for zone visualization
+   * Create SparkJS grids for zone visualization
    */
   createVisualization() {
     if (!this.scene) {
@@ -58,52 +62,69 @@ export class EffectZoneManager {
       return;
     }
 
-    // Create a group to hold all wireframe boxes
+    // Create a group to hold all zone grids
     this.visualizationGroup = new THREE.Group();
     this.visualizationGroup.name = 'EffectZoneVisualization';
     this.scene.add(this.visualizationGroup);
 
-    // Create wireframe box for each zone
+    // Create grid for each zone
     for (const zone of this.zones) {
       if (zone.type === 'box') {
-        const size = new THREE.Vector3().subVectors(zone.bounds.max, zone.bounds.min);
-        const center = new THREE.Vector3().addVectors(zone.bounds.min, zone.bounds.max).multiplyScalar(0.5);
+        // Create a Box3 for the extents
+        const extents = new THREE.Box3(zone.bounds.min.clone(), zone.bounds.max.clone());
         
-        // Add subdivisions for denser wireframe (4 segments per axis)
-        const geometry = new THREE.BoxGeometry(size.x, size.y, size.z, 4, 4, 4);
-        const material = new THREE.MeshBasicMaterial({
-          color: 0x00ff00, // Green wireframe
-          wireframe: true,
-          transparent: true,
-          opacity: 0.6
+        // Create SplatMesh with grid construction
+        const grid = new SplatMesh({
+          constructSplats: (splats) => constructGrid({
+            splats,
+            extents: extents,
+            stepSize: 0.5, // Grid spacing - adjust for density
+            pointRadius: 0.01, // Size of each grid point
+            opacity: 0.6,
+            color: new THREE.Color(0x00ff00) // Green for inactive zones
+          }),
         });
         
-        const wireframe = new THREE.Mesh(geometry, material);
-        wireframe.position.copy(center);
-        wireframe.userData.zoneId = zone.id;
+        grid.userData.zoneId = zone.id;
         
-        // Store reference
-        this.wireframeBoxes.set(zone.id, wireframe);
-        this.visualizationGroup.add(wireframe);
+        // Store reference and initial color state
+        this.zoneGrids.set(zone.id, grid);
+        this.zoneGridColors.set(zone.id, 0x00ff00); // Track color state
+        this.visualizationGroup.add(grid);
       } else if (zone.type === 'sphere') {
-        // For sphere zones, create a wireframe sphere
+        // For sphere zones, we'll create a bounding box grid
+        // Sphere zones: bounds.min is center, bounds.max.x is radius
         const center = zone.bounds.min;
         const radius = zone.bounds.max.x;
+        const min = new THREE.Vector3(
+          center.x - radius,
+          center.y - radius,
+          center.z - radius
+        );
+        const max = new THREE.Vector3(
+          center.x + radius,
+          center.y + radius,
+          center.z + radius
+        );
         
-        const geometry = new THREE.SphereGeometry(radius, 16, 16);
-        const material = new THREE.MeshBasicMaterial({
-          color: 0x00ff00,
-          wireframe: true,
-          transparent: true,
-          opacity: 0.6
+        const extents = new THREE.Box3(min, max);
+        
+        const grid = new SplatMesh({
+          constructSplats: (splats) => constructGrid({
+            splats,
+            extents: extents,
+            stepSize: 0.5,
+            pointRadius: 0.01,
+            opacity: 0.6,
+            color: new THREE.Color(0x00ff00)
+          }),
         });
         
-        const wireframe = new THREE.Mesh(geometry, material);
-        wireframe.position.copy(center);
-        wireframe.userData.zoneId = zone.id;
+        grid.userData.zoneId = zone.id;
         
-        this.wireframeBoxes.set(zone.id, wireframe);
-        this.visualizationGroup.add(wireframe);
+        this.zoneGrids.set(zone.id, grid);
+        this.zoneGridColors.set(zone.id, 0x00ff00); // Track color state
+        this.visualizationGroup.add(grid);
       }
     }
 
@@ -113,7 +134,7 @@ export class EffectZoneManager {
   }
 
   /**
-   * Toggle visibility of zone wireframes
+   * Toggle visibility of zone grids
    */
   toggleVisualization() {
     if (!this.visualizationGroup) {
@@ -131,12 +152,72 @@ export class EffectZoneManager {
   }
 
   /**
-   * Update wireframe colors based on active zones
+   * Update grid colors based on active zones
+   * Recreates grids when color needs to change
    */
   updateVisualizationColors() {
-    for (const [zoneId, wireframe] of this.wireframeBoxes) {
+    for (const [zoneId, grid] of this.zoneGrids) {
       const isActive = this.activeZones.has(zoneId);
-      wireframe.material.color.setHex(isActive ? 0xff0000 : 0x00ff00); // Red if active, green if inactive
+      const targetColorHex = isActive ? 0xff0000 : 0x00ff00; // Red if active, green if inactive
+      const currentColorHex = this.zoneGridColors.get(zoneId);
+      
+      // Only recreate if color changed
+      if (currentColorHex !== targetColorHex) {
+        // Remove old grid
+        this.visualizationGroup.remove(grid);
+        
+        // Find the zone to recreate grid
+        const zone = this.zones.find(z => z.id === zoneId);
+        if (!zone) continue;
+        
+        // Create new grid with updated color
+        let newGrid;
+        if (zone.type === 'box') {
+          const extents = new THREE.Box3(zone.bounds.min.clone(), zone.bounds.max.clone());
+          newGrid = new SplatMesh({
+            constructSplats: (splats) => constructGrid({
+              splats,
+              extents: extents,
+              stepSize: 0.5,
+              pointRadius: 0.01,
+              opacity: 0.6,
+              color: new THREE.Color(targetColorHex)
+            }),
+          });
+        } else if (zone.type === 'sphere') {
+          const center = zone.bounds.min;
+          const radius = zone.bounds.max.x;
+          const min = new THREE.Vector3(
+            center.x - radius,
+            center.y - radius,
+            center.z - radius
+          );
+          const max = new THREE.Vector3(
+            center.x + radius,
+            center.y + radius,
+            center.z + radius
+          );
+          const extents = new THREE.Box3(min, max);
+          
+          newGrid = new SplatMesh({
+            constructSplats: (splats) => constructGrid({
+              splats,
+              extents: extents,
+              stepSize: 0.5,
+              pointRadius: 0.01,
+              opacity: 0.6,
+              color: new THREE.Color(targetColorHex)
+            }),
+          });
+        }
+        
+        if (newGrid) {
+          newGrid.userData.zoneId = zoneId;
+          this.zoneGrids.set(zoneId, newGrid);
+          this.zoneGridColors.set(zoneId, targetColorHex);
+          this.visualizationGroup.add(newGrid);
+        }
+      }
     }
   }
 
