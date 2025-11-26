@@ -35,6 +35,8 @@ localhost+*-key.pem
 # Assets (should be downloaded separately)
 assets/
 public/assets/
+# But allow config files to be tracked
+!public/assets/*.json
 *.spz
 *.mp3
 assets.zip

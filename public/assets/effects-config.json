@@ -1,0 +1,84 @@
+{
+  "zones": [
+    {
+      "id": "hallway-1",
+      "type": "box",
+      "bounds": {
+        "min": [12.0, -2.0, -10.0],
+        "max": [17.0, 3.0, 2.0]
+      },
+      "effects": {
+        "flickering": {
+          "enabled": true,
+          "flickerSpeed": 0.8,
+          "flickerAmount": 0.6,
+          "onOffThreshold": 0.3,
+          "offWindowWidth": 0.5
+        }
+      }
+    },
+    {
+      "id": "outdoor-area",
+      "type": "box",
+      "bounds": {
+        "min": [35.0, -2.0, -5.0],
+        "max": [41.0, 5.0, 10.0]
+      },
+      "effects": {
+        "floatingLights": {
+          "enabled": true,
+          "count": 10,
+          "color": "0xffffaa"
+        }
+      }
+    },
+    {
+      "id": "forest-area",
+      "type": "box",
+      "bounds": {
+        "min": [44.4, -2.5, -6.4],
+        "max": [50.4, 2.5, -0.4]
+      },
+      "effects": {
+        "floatingLights": {
+          "enabled": true,
+          "count": 25,
+          "color": "0xffffaa"
+        }
+      }
+    },
+    {
+      "id": "far-rooms",
+      "type": "box",
+      "bounds": {
+        "min": [55.0, -3.0, -10.0],
+        "max": [64.0, 4.0, 15.0]
+      },
+      "effects": {
+        "flickering": {
+          "enabled": true,
+          "flickerSpeed": 1.2,
+          "flickerAmount": 0.75,
+          "onOffThreshold": 0.45,
+          "offWindowWidth": 0.4
+        }
+      }
+    },
+    {
+      "id": "final-rooms",
+      "type": "box",
+      "bounds": {
+        "min": [76.0, -5.3, 29.5],
+        "max": [83.7, -0.3, 35.5]
+      },
+      "effects": {
+        "floatingLights": {
+          "enabled": true,
+          "count": 25,
+          "color": "0xffffaa"
+        }
+      }
+    }
+  ]
+}
+
