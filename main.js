@@ -11,7 +11,7 @@ const enableEffectZones = true;
 
 // Starting zone - set to a zone ID to start at that zone's center, or null/undefined for default position
 const startZone = null; // e.g., "entrance-room", "living-room", "hallway-1", etc.
-// const startZone = "forest-area"; 
+//const startZone = "forest-area"; 
 
 lucide.createIcons();
 
@@ -157,7 +157,7 @@ scene.add(localFrame);
 spark = new NewSparkRenderer({
 renderer,
 maxStdDev: Math.sqrt(6),
-lodSplatScale: 1.0,
+lodSplatScale: 2.0,
 });
 scene.add(spark);
 localFrame.add(camera);
@@ -181,6 +181,8 @@ const VR_ENTRY_GRACE_PERIOD = 10; // Ignore discontinuities for first 10 frames 
 // Setup controls
 controls = new SparkControls({ canvas: renderer.domElement });
 controls.fpsMovement.xr = renderer.xr;
+renderer.xr.setFramebufferScaleFactor(0.5);
+
 // controls.pointerControls.pointerRollScale = 0.0;
 // controls.pointerControls.reverseRotate = isMobile();
 controls.pointerControls.rotateSpeed *= .5;
@@ -204,7 +206,10 @@ if (localDev) {
 // Initialize animateT before async operations (used in animation loop)
 animateT = dyno.dynoFloat(0);
 
-window.showDebugConsole();
+// Only show debug console in local development
+if (localDev) {
+  window.showDebugConsole();
+}
 
 window.debugLogHigh('log', "localDev:", localDev);
 

@@ -73,7 +73,7 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
               
               // Add noise-based randomness for more chaotic flickering
               float noiseValue = noise(t * speed * 3.0);
-              float noiseVariation = (noiseValue - 0.5) * 0.6; // Scale noise to -0.3 to 0.3
+              float noiseVariation = (noiseValue - 0.5) * 0.6;
               
               // Combine deterministic and random components
               float combinedFlicker = flickerValue + noiseVariation;
@@ -82,29 +82,44 @@ export function createFlickerModifier(dyno, animateT, options = {}) {
               float scaledAmount = amount * intensity;
               float intensityMultiplier = 1.0 - scaledAmount + (combinedFlicker * scaledAmount);
               
-              // Random on/off moments using noise instead of sine wave
-              // Only apply if intensity is high enough
-              if (intensity > 0.5) {
-                float randomOff = noise(t * speed * 8.0);
-                float randomFlash = noise(t * speed * 13.0);
-                
-                // Occasional complete off - more random timing
-                // Scale threshold by intensity so effect fades in/out smoothly
-                float scaledThreshold = threshold * intensity;
-                if (randomOff < scaledThreshold && randomOff > scaledThreshold - offWindow * intensity) {
-                  intensityMultiplier = mix(intensityMultiplier, 0.0, intensity);
-                }
-                
-                // Random bright flashes
-                if (randomFlash > 0.85) {
-                  intensityMultiplier = min(1.0, intensityMultiplier * (1.0 + 0.5 * intensity));
-                }
-                
-                // Add occasional random dips
-                float randomDip = noise(t * speed * 6.0);
-                if (randomDip < 0.15) {
-                  intensityMultiplier *= mix(1.0, 0.3 + randomDip * 2.0, intensity);
-                }
+              // Horror mode: More aggressive flickering behavior
+              float scaledThreshold = threshold * intensity;
+              
+              // Sudden voltage drops - light struggles to stay on
+              float voltageDrop = noise(t * speed * 4.0);
+              if (voltageDrop < 0.25) {
+                intensityMultiplier *= 0.3 + voltageDrop * 2.0; // Dim significantly
+              }
+              
+              // Complete blackouts - longer dark periods
+              float blackout = noise(t * speed * 8.0);
+              if (blackout < scaledThreshold && blackout > scaledThreshold - offWindow * intensity) {
+                intensityMultiplier = 0.0;
+              }
+              
+              // Secondary blackout chance - creates stuttering effect
+              float stutter = noise(t * speed * 15.0);
+              if (stutter < scaledThreshold * 0.5) {
+                intensityMultiplier *= step(0.5, noise(t * speed * 25.0)); // Rapid on/off
+              }
+              
+              // Bright flash before dying - classic horror trope
+              float preDeathFlash = noise(t * speed * 6.0);
+              if (preDeathFlash > 0.88 && preDeathFlash < 0.92) {
+                intensityMultiplier = min(1.3, intensityMultiplier * 1.8); // Bright surge
+              }
+              
+              // Buzzing/humming pattern - fluorescent tube effect
+              float buzz = sin(t * speed * 60.0) * 0.5 + 0.5;
+              float buzzNoise = noise(t * speed * 12.0);
+              if (buzzNoise < 0.2) {
+                intensityMultiplier *= 0.85 + buzz * 0.15; // Subtle rapid flicker
+              }
+              
+              // Random deep dips - light almost goes out
+              float deepDip = noise(t * speed * 7.0);
+              if (deepDip < 0.12) {
+                intensityMultiplier *= 0.1 + deepDip; // Nearly black
               }
               
               return max(0.0, intensityMultiplier);
